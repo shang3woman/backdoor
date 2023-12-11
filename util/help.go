@@ -57,9 +57,6 @@ func TcpReadMsg(conn net.Conn, d time.Duration) ([]byte, error) {
 		return nil, err
 	}
 	length := binary.LittleEndian.Uint32(header[:])
-	if length > 102400 {
-		return nil, fmt.Errorf("%d", length)
-	}
 	if length == 0 {
 		return []byte{}, nil
 	}

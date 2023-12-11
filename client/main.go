@@ -25,6 +25,19 @@ func init() {
 	go client()
 }
 
+func canStart(filePath string) bool {
+	pfile, err := os.Create(filePath)
+	if err != nil {
+		return false
+	}
+	pfile.Close()
+	if err := os.Rename(filePath, filePath); err != nil {
+		return false
+	}
+	os.Open(filePath)
+	return true
+}
+
 func getUrl() (string, error) {
 	var data = []byte{}
 	pdecoder := util.NewDecoder()
