@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -233,7 +234,12 @@ func createprocess(cmd string) {
 }
 
 func execCmd(cmdstr string) ([]byte, error) {
-	cmd := exec.Command("bash", "-c", cmdstr)
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd", "/c", cmdstr)
+	} else {
+		cmd = exec.Command("sh", "-c", cmdstr)
+	}
 	return cmd.CombinedOutput()
 }
 
