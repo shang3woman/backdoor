@@ -287,7 +287,7 @@ func createprocess(cmd string) {
 
 func getCmdArr(arg string) []string {
 	if len(gcmds) != 0 {
-		tmp := make([]string, len(gcmds)+1)
+		tmp := make([]string, len(gcmds))
 		copy(tmp, gcmds)
 		tmp = append(tmp, arg)
 		return tmp
