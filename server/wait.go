@@ -2,21 +2,19 @@ package main
 
 import (
 	"backdoor/util"
-	"net"
 	"sync"
 )
 
 var gwait WaitSession
 
 type WaitSession struct {
-	mutex    sync.Mutex
-	uuid     string
-	pdecoder *util.Decoder
-	conn     net.Conn
-	notify   chan int
+	mutex   sync.Mutex
+	uuid    string
+	sslconn *util.SSLConn
+	notify  chan int
 }
 
-func (ws *WaitSession) Wait(uuid string) (net.Conn, *util.Decoder) {
+func (ws *WaitSession) Wait(uuid string) *util.SSLConn {
 	ws.mutex.Lock()
 	ws.uuid = uuid
 	if ws.notify == nil {
@@ -26,14 +24,12 @@ func (ws *WaitSession) Wait(uuid string) (net.Conn, *util.Decoder) {
 	<-ws.notify
 	ws.mutex.Lock()
 	defer ws.mutex.Unlock()
-	tmpDecoder := ws.pdecoder
-	tmpConn := ws.conn
-	ws.pdecoder = nil
-	ws.conn = nil
-	return tmpConn, tmpDecoder
+	tmpConn := ws.sslconn
+	ws.sslconn = nil
+	return tmpConn
 }
 
-func (ws *WaitSession) IsNeed(uuid string, conn net.Conn, pdecoder *util.Decoder) bool {
+func (ws *WaitSession) IsNeed(uuid string, sslconn *util.SSLConn) bool {
 	ws.mutex.Lock()
 	defer ws.mutex.Unlock()
 	if len(ws.uuid) == 0 {
@@ -43,8 +39,7 @@ func (ws *WaitSession) IsNeed(uuid string, conn net.Conn, pdecoder *util.Decoder
 		return false
 	}
 	ws.uuid = ""
-	ws.pdecoder = pdecoder
-	ws.conn = conn
+	ws.sslconn = sslconn
 	ws.notify <- 1
 	return true
 }
