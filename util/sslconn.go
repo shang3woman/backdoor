@@ -24,8 +24,6 @@ func NewSSLConn(conn net.Conn) *SSLConn {
 }
 
 func (sslconn *SSLConn) Read() ([]byte, error) {
-	sslconn.mutex.Lock()
-	defer sslconn.mutex.Unlock()
 	var header [4]byte
 	if _, err := io.ReadFull(sslconn.conn, header[:]); err != nil {
 		return nil, err
