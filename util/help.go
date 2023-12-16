@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"net"
 	"os"
+	"strconv"
+	"strings"
 )
 
 func SendCmdMsg(conn *SSLConn, cmd byte, data []byte) {
@@ -54,4 +57,24 @@ func TryStoreFileForMulti(fileName string, fileData []byte) error {
 		}
 	}
 	return err
+}
+
+func ParseIP(str string) (string, uint16, bool) {
+	str = strings.TrimSpace(str)
+	strArr := strings.Split(str, ":")
+	if len(strArr) != 2 {
+		return "", 0, false
+	}
+	ip := net.ParseIP(strArr[0])
+	if ip == nil || ip.To4() == nil {
+		return "", 0, false
+	}
+	port, err := strconv.ParseUint(strArr[1], 10, 16)
+	if err != nil {
+		return "", 0, false
+	}
+	if port == 0 {
+		return "", 0, false
+	}
+	return ip.String(), uint16(port), true
 }

