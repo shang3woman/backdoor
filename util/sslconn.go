@@ -41,7 +41,7 @@ func (sslconn *SSLConn) Read() ([]byte, error) {
 	return sslconn.pdecoder.Decode(msg)
 }
 
-func (sslconn *SSLConn) Write(data []byte) {
+func (sslconn *SSLConn) Write(data []byte) (int, error) {
 	sslconn.mutex.Lock()
 	defer sslconn.mutex.Unlock()
 	if len(data) != 0 {
@@ -51,7 +51,7 @@ func (sslconn *SSLConn) Write(data []byte) {
 	if len(data) != 0 {
 		msg = append(msg, data...)
 	}
-	sslconn.conn.Write(msg)
+	return sslconn.conn.Write(msg)
 }
 
 func (sslconn *SSLConn) Close() error {

