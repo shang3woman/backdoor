@@ -32,9 +32,8 @@ func (mgr *InfoMgr) All() []*util.Info {
 	return results
 }
 
-func (mgr *InfoMgr) Exist(key string) bool {
+func (mgr *InfoMgr) GetInfo(key string) *util.Info {
 	mgr.mutex.Lock()
 	defer mgr.mutex.Unlock()
-	_, ok := mgr.infos[key]
-	return ok
+	return mgr.infos[key]
 }

