@@ -58,7 +58,7 @@ func getIP() string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	ips, err := lookupIP(ctx, CustomResolver, rootDomain)
+	ips, _ := lookupIP(ctx, CustomResolver, rootDomain)
 	if len(ips) == 0 {
 		ips, _ = lookupIP(ctx, DefaultResolver, rootDomain)
 	}
