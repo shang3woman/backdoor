@@ -17,6 +17,7 @@ const (
 	CMD_GET_ENV
 	CMD_SET_ENV
 	CMD_PRINT
+	CMD_PWD
 )
 
 const (

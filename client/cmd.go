@@ -58,12 +58,23 @@ func (client *CmdClient) loopProc() {
 			client.procGetEnv(msg)
 		case util.CMD_SET_ENV:
 			client.procSetEnv(msg)
+		case util.CMD_PWD:
+			client.procPWD(msg)
 		}
 	}
 }
 
 func (client *CmdClient) OnClose() {
 	client.msgchan.Close()
+}
+
+func (client *CmdClient) procPWD(msg []byte) {
+	dir, err := os.Getwd()
+	if err != nil {
+		util.SendCmdMsg(client.conn, util.CMD_PRINT, []byte(err.Error()))
+		return
+	}
+	util.SendCmdMsg(client.conn, util.CMD_PRINT, []byte(dir))
 }
 
 func (client *CmdClient) procCD(msg []byte) {

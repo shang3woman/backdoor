@@ -9,6 +9,8 @@ import (
 	"io"
 	"net"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -72,7 +74,16 @@ session uuid  --wait special uuid come back`)
 			continue
 		}
 		if len(strarr) == 1 {
-			for _, info := range ginfomgr.All() {
+			allinfo := ginfomgr.All()
+			var temp []string
+			for i, v := range allinfo {
+				temp = append(temp, fmt.Sprintf("%s %d", v.UUID, i))
+			}
+			sort.Strings(temp)
+			for _, item := range temp {
+				temparr := strings.Split(item, " ")
+				index, _ := strconv.ParseInt(temparr[1], 10, 64)
+				info := allinfo[index]
 				fmt.Printf("uuid:%s host:%s ip:%s pid:%d time:%s os:%s\n", info.UUID, info.HostName, info.LocalIP, info.PID, info.Time, info.OSType)
 			}
 		} else {

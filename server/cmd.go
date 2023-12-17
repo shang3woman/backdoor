@@ -43,11 +43,15 @@ func (server *CmdServer) ProcUI(iswin bool, scanner *bufio.Scanner) {
 		if len(cmdstr) == 0 {
 			continue
 		}
+		if cmdstr == "exit" {
+			break
+		}
 		if cmdstr == "help" {
 			fmt.Println(`
 upload file            --upload local file to remote working directory
 download file          --download remote file to local working directory
 cd path                --change remote working directory
+pwd                    --get remote working directory
 createprocess cmd arg  --start goroutine to exec command, no response
 setcmdshell cmd /c     --set remote shell
 getenv                 --get remote all env var
@@ -55,8 +59,9 @@ setenv key=value       --set remote env var
 exit                   --exit current session`)
 			continue
 		}
-		if cmdstr == "exit" {
-			break
+		if cmdstr == "pwd" {
+			util.SendCmdMsg(server.conn, util.CMD_PWD, nil)
+			continue
 		}
 		if strings.HasPrefix(cmdstr, "upload ") {
 			fileAddr := strings.TrimSpace(cmdstr[strings.Index(cmdstr, " "):])
