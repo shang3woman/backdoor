@@ -6,15 +6,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync/atomic"
+	"time"
 )
 
 type CmdClient struct {
-	conn     *util.SSLConn
-	msgchan  *util.MsgChan
-	gcmds    []string
-	fileName string
-	fileData []byte
+	conn        *util.SSLConn
+	msgchan     *util.MsgChan
+	gcmds       []string
+	fileName    string
+	fileData    []byte
+	fileDataZip []byte
 }
 
 func NewCmdClient(sslconn *util.SSLConn) *CmdClient {
@@ -44,6 +48,8 @@ func (client *CmdClient) loopProc() {
 			client.procFileBeg(msg)
 		case util.CMD_FILE_DATA:
 			client.procFileData(msg)
+		case util.CMD_FILE_DATA_ZIP:
+			client.procFileDataZip(msg)
 		case util.CMD_FILE_END:
 			client.procFileEnd(msg)
 		case util.CMD_DOWNLOAD_REQ:
@@ -58,6 +64,8 @@ func (client *CmdClient) loopProc() {
 			client.procGetEnv(msg)
 		case util.CMD_SET_ENV:
 			client.procSetEnv(msg)
+		case util.CMD_SET_SLEEP:
+			client.procSetSleep(msg)
 		case util.CMD_PWD:
 			client.procPWD(msg)
 		}
@@ -90,6 +98,8 @@ func (client *CmdClient) procCD(msg []byte) {
 
 func (client *CmdClient) procFileBeg(msg []byte) {
 	client.fileName = strings.TrimSpace(string(msg))
+	client.fileData = nil
+	client.fileDataZip = nil
 }
 
 func (client *CmdClient) procFileData(msg []byte) {
@@ -99,13 +109,33 @@ func (client *CmdClient) procFileData(msg []byte) {
 	client.fileData = append(client.fileData, msg...)
 }
 
+func (client *CmdClient) procFileDataZip(msg []byte) {
+	if len(client.fileName) == 0 {
+		return
+	}
+	client.fileDataZip = append(client.fileDataZip, msg...)
+}
+
 func (client *CmdClient) procFileEnd(msg []byte) {
 	if len(client.fileName) == 0 {
 		return
 	}
-	err := util.TryStoreFileForMulti(client.fileName, client.fileData)
+	var fileContent []byte
+	if len(client.fileData) != 0 {
+		fileContent = client.fileData
+	}
+	if len(client.fileDataZip) != 0 {
+		tmpFileContent, err := util.UnCompress(client.fileDataZip)
+		if err != nil {
+			util.SendCmdMsg(client.conn, util.CMD_PRINT, []byte(err.Error()))
+		} else {
+			fileContent = tmpFileContent
+		}
+	}
+	err := util.TryStoreFileForMulti(client.fileName, fileContent)
 	client.fileName = ""
 	client.fileData = nil
+	client.fileDataZip = nil
 	if err != nil {
 		util.SendCmdMsg(client.conn, util.CMD_PRINT, []byte(err.Error()))
 	}
@@ -121,13 +151,19 @@ func (client *CmdClient) procDownloadReq(msg []byte) {
 	if len(contents) == 0 {
 		return
 	}
+	contents, err = util.Compress(contents)
+	if err != nil {
+		util.SendCmdMsg(client.conn, util.CMD_PRINT, []byte(err.Error()))
+		return
+	}
 	util.SendCmdMsg(client.conn, util.CMD_FILE_BEG, []byte(filepath.Base(fpath)))
 	for beg := 0; beg < len(contents); {
-		end := beg + 2048
+		time.Sleep(20 * time.Millisecond)
+		end := beg + 1024
 		if end > len(contents) {
 			end = len(contents)
 		}
-		util.SendCmdMsg(client.conn, util.CMD_FILE_DATA, contents[beg:end])
+		util.SendCmdMsg(client.conn, util.CMD_FILE_DATA_ZIP, contents[beg:end])
 		beg = end
 	}
 	util.SendCmdMsg(client.conn, util.CMD_FILE_END, nil)
@@ -190,6 +226,18 @@ func (client *CmdClient) procSetEnv(msg []byte) {
 	if err != nil {
 		util.SendCmdMsg(client.conn, util.CMD_PRINT, []byte(err.Error()))
 	}
+}
+
+func (client *CmdClient) procSetSleep(msg []byte) {
+	arg := strings.TrimSpace(string(msg))
+	if len(arg) == 0 {
+		return
+	}
+	seconds, err := strconv.ParseUint(arg, 10, 64)
+	if err != nil {
+		return
+	}
+	atomic.StoreUint64(&gtimeout, seconds)
 }
 
 func (client *CmdClient) getCmdArr(arg string) []string {

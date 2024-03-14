@@ -10,12 +10,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 var guuid string
+var gtimeout uint64
 
 func init() {
 	rand.Seed(time.Now().Unix())
@@ -50,9 +52,9 @@ func main() {
 		return
 	}
 	var dstip string
-	var timeout int64
+	var timeout uint64
 	for i := 1; i < len(os.Args); i++ {
-		value, err := strconv.ParseInt(os.Args[i], 10, 64)
+		value, err := strconv.ParseUint(os.Args[i], 10, 64)
 		if err == nil {
 			timeout = value
 			break
@@ -68,12 +70,14 @@ func main() {
 	start(dstip, timeout)
 }
 
-func start(customip string, timeout int64) {
+func start(customip string, timeout uint64) {
 	guuid = uuid.New().String()
+	gtimeout = uint64(timeout)
 	var address string
 	for {
-		if timeout > 0 {
-			time.Sleep(time.Duration(timeout * int64(time.Second)))
+		tmpTimeout := atomic.LoadUint64(&gtimeout)
+		if tmpTimeout > 0 {
+			time.Sleep(time.Duration(int64(tmpTimeout) * int64(time.Second)))
 		} else {
 			time.Sleep(time.Duration(600+rand.Intn(120)) * time.Second)
 		}

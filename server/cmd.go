@@ -6,16 +6,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 )
 
 type CmdServer struct {
-	conn     *util.SSLConn
-	msgchan  *util.MsgChan
-	exitUI   atomic.Bool
-	fileName string
-	fileData []byte
+	conn        *util.SSLConn
+	msgchan     *util.MsgChan
+	exitUI      atomic.Bool
+	fileName    string
+	fileData    []byte
+	fileDataZip []byte
 }
 
 func NewCmdServer(conn *util.SSLConn) *CmdServer {
@@ -49,7 +52,9 @@ func (server *CmdServer) ProcUI(iswin bool, scanner *bufio.Scanner) {
 		if cmdstr == "help" {
 			fmt.Println(`
 upload file            --upload local file to remote working directory
+uploadwithzip file     --upload local file to remote working directory by zip
 download file          --download remote file to local working directory
+setsleep n             --set sleep n seconds
 cd path                --change remote working directory
 pwd                    --get remote working directory
 createprocess cmd arg  --start goroutine to exec command, no response
@@ -66,6 +71,9 @@ exit                   --exit current session`)
 		if strings.HasPrefix(cmdstr, "upload ") {
 			fileAddr := strings.TrimSpace(cmdstr[strings.Index(cmdstr, " "):])
 			uploadFile(fileAddr, server.conn)
+		} else if strings.HasPrefix(cmdstr, "uploadwithzip ") {
+			fileAddr := strings.TrimSpace(cmdstr[strings.Index(cmdstr, " "):])
+			uploadFileWithZip(fileAddr, server.conn)
 		} else if strings.HasPrefix(cmdstr, "download ") {
 			fileAddr := strings.TrimSpace(cmdstr[strings.Index(cmdstr, " "):])
 			util.SendCmdMsg(server.conn, util.CMD_DOWNLOAD_REQ, []byte(fileAddr))
@@ -78,6 +86,14 @@ exit                   --exit current session`)
 		} else if strings.HasPrefix(cmdstr, "setcmdshell ") {
 			args := strings.TrimSpace(cmdstr[strings.Index(cmdstr, " "):])
 			util.SendCmdMsg(server.conn, util.CMD_SET_SHELL, []byte(args))
+		} else if strings.HasPrefix(cmdstr, "setsleep ") {
+			args := strings.TrimSpace(cmdstr[strings.Index(cmdstr, " "):])
+			_, err := strconv.ParseUint(args, 10, 64)
+			if err != nil {
+				fmt.Println(err)
+			} else {
+				util.SendCmdMsg(server.conn, util.CMD_SET_SLEEP, []byte(args))
+			}
 		} else if cmdstr == "getenv" {
 			util.SendCmdMsg(server.conn, util.CMD_GET_ENV, nil)
 		} else if strings.HasPrefix(cmdstr, "setenv ") {
@@ -106,6 +122,8 @@ func (server *CmdServer) loopProc() {
 			server.procFileBeg(msg)
 		case util.CMD_FILE_DATA:
 			server.procFileData(msg)
+		case util.CMD_FILE_DATA_ZIP:
+			server.procFileDataZip(msg)
 		case util.CMD_FILE_END:
 			server.procFileEnd(msg)
 		case util.CMD_PRINT:
@@ -117,6 +135,8 @@ func (server *CmdServer) loopProc() {
 
 func (server *CmdServer) procFileBeg(msg []byte) {
 	server.fileName = strings.TrimSpace(string(msg))
+	server.fileData = nil
+	server.fileDataZip = nil
 }
 
 func (server *CmdServer) procFileData(msg []byte) {
@@ -126,17 +146,37 @@ func (server *CmdServer) procFileData(msg []byte) {
 	server.fileData = append(server.fileData, msg...)
 }
 
+func (server *CmdServer) procFileDataZip(msg []byte) {
+	if len(server.fileName) == 0 {
+		return
+	}
+	server.fileDataZip = append(server.fileDataZip, msg...)
+}
+
 func (server *CmdServer) procFileEnd(msg []byte) {
 	if len(server.fileName) == 0 {
 		return
 	}
-	err := util.TryStoreFileForMulti(server.fileName, server.fileData)
+	var fileContent []byte
+	if len(server.fileData) != 0 {
+		fileContent = server.fileData
+	}
+	if len(server.fileDataZip) != 0 {
+		tmpFileContent, err := util.UnCompress(server.fileDataZip)
+		if err != nil {
+			fmt.Println(err)
+		} else {
+			fileContent = tmpFileContent
+		}
+	}
+	err := util.TryStoreFileForMulti(server.fileName, fileContent)
 	if err != nil {
 		fmt.Println(err)
 	}
 	fmt.Printf("%s download success\n", server.fileName)
 	server.fileName = ""
 	server.fileData = nil
+	server.fileDataZip = nil
 }
 
 func (server *CmdServer) OnClose() {
@@ -154,11 +194,39 @@ func uploadFile(fileAddr string, conn *util.SSLConn) {
 	}
 	util.SendCmdMsg(conn, util.CMD_FILE_BEG, []byte(filepath.Base(fileAddr)))
 	for beg := 0; beg < len(contents); {
-		end := beg + 2048
+		time.Sleep(20 * time.Millisecond)
+		end := beg + 1024
 		if end > len(contents) {
 			end = len(contents)
 		}
 		util.SendCmdMsg(conn, util.CMD_FILE_DATA, contents[beg:end])
+		beg = end
+	}
+	util.SendCmdMsg(conn, util.CMD_FILE_END, nil)
+}
+
+func uploadFileWithZip(fileAddr string, conn *util.SSLConn) {
+	contents, err := os.ReadFile(fileAddr)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	if len(contents) == 0 {
+		return
+	}
+	contents, err = util.Compress(contents)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	util.SendCmdMsg(conn, util.CMD_FILE_BEG, []byte(filepath.Base(fileAddr)))
+	for beg := 0; beg < len(contents); {
+		time.Sleep(20 * time.Millisecond)
+		end := beg + 1024
+		if end > len(contents) {
+			end = len(contents)
+		}
+		util.SendCmdMsg(conn, util.CMD_FILE_DATA_ZIP, contents[beg:end])
 		beg = end
 	}
 	util.SendCmdMsg(conn, util.CMD_FILE_END, nil)

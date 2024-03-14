@@ -2,8 +2,10 @@ package util
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strconv"
@@ -77,4 +79,28 @@ func ParseIP(str string) (string, uint16, bool) {
 		return "", 0, false
 	}
 	return ip.String(), uint16(port), true
+}
+
+func Compress(data []byte) ([]byte, error) {
+	var tmpBuffer bytes.Buffer
+	gw, err := gzip.NewWriterLevel(&tmpBuffer, gzip.BestCompression)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := gw.Write(data); err != nil {
+		return nil, err
+	}
+	if err := gw.Close(); err != nil {
+		return nil, err
+	}
+	return tmpBuffer.Bytes(), nil
+}
+
+func UnCompress(zipdata []byte) ([]byte, error) {
+	gr, err := gzip.NewReader(bytes.NewReader(zipdata))
+	if err != nil {
+		return nil, err
+	}
+	defer gr.Close()
+	return io.ReadAll(gr)
 }

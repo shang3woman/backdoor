@@ -18,6 +18,8 @@ const (
 	CMD_SET_ENV
 	CMD_PRINT
 	CMD_PWD
+	CMD_FILE_DATA_ZIP
+	CMD_SET_SLEEP
 )
 
 const (
