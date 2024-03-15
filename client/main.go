@@ -72,14 +72,14 @@ func main() {
 
 func start(customip string, timeout uint64) {
 	guuid = uuid.New().String()
-	gtimeout = uint64(timeout)
+	atomic.StoreUint64(&gtimeout, timeout)
 	var address string
 	for {
 		tmpTimeout := atomic.LoadUint64(&gtimeout)
 		if tmpTimeout > 0 {
 			time.Sleep(time.Duration(int64(tmpTimeout) * int64(time.Second)))
 		} else {
-			time.Sleep(time.Duration(600+rand.Intn(120)) * time.Second)
+			time.Sleep(time.Duration(int64(600+rand.Intn(120)) * int64(time.Second)))
 		}
 		if len(customip) != 0 {
 			session(customip)
