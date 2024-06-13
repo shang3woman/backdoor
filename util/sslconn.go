@@ -45,7 +45,8 @@ func (sslconn *SSLConn) Write(data []byte) (int, error) {
 	if len(data) != 0 {
 		data = sslconn.pencoder.Encode(data)
 	}
-	msg := binary.LittleEndian.AppendUint32(nil, uint32(len(data)))
+	msg := make([]byte, 4)
+	binary.LittleEndian.PutUint32(msg, uint32(len(data)))
 	if len(data) != 0 {
 		msg = append(msg, data...)
 	}

@@ -5,7 +5,7 @@ import (
 	"compress/gzip"
 	"encoding/binary"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"net"
 	"os"
 	"strconv"
@@ -102,5 +102,5 @@ func UnCompress(zipdata []byte) ([]byte, error) {
 		return nil, err
 	}
 	defer gr.Close()
-	return io.ReadAll(gr)
+	return ioutil.ReadAll(gr)
 }

@@ -2,14 +2,16 @@ package util
 
 import (
 	"net"
-	"sync/atomic"
+	"sync"
 	"time"
 )
 
 type ConnWrap struct {
 	conn    net.Conn
 	dbuffer *doubleBuffer
-	err     atomic.Pointer[error]
+
+	mutex sync.Mutex
+	err   error
 }
 
 func NewConnWrap(conn net.Conn) *ConnWrap {
@@ -20,14 +22,28 @@ func NewConnWrap(conn net.Conn) *ConnWrap {
 	return pwrap
 }
 
+func (wrap *ConnWrap) LoadError() error {
+	var err error
+	wrap.mutex.Lock()
+	err = wrap.err
+	wrap.mutex.Unlock()
+	return err
+}
+
+func (wrap *ConnWrap) StoreError(err error) {
+	wrap.mutex.Lock()
+	wrap.err = err
+	wrap.mutex.Unlock()
+}
+
 func (wrap *ConnWrap) Read(b []byte) (n int, err error) {
 	return wrap.conn.Read(b)
 }
 
 func (wrap *ConnWrap) Write(b []byte) (n int, err error) {
-	tmperr := wrap.err.Load()
+	tmperr := wrap.LoadError()
 	if tmperr != nil {
-		return 0, *tmperr
+		return 0, tmperr
 	}
 	wrap.dbuffer.Write(b)
 	return len(b), nil
@@ -52,7 +68,7 @@ func (wrap *ConnWrap) loopSend() {
 		if err == nil {
 			continue
 		}
-		wrap.err.Store(&err)
+		wrap.StoreError(err)
 		break
 	}
 }
