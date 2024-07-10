@@ -37,9 +37,9 @@ func NewCmdServer(conn *util.SSLConn) *CmdServer {
 
 func (server *CmdServer) ProcUI(iswin bool, scanner *bufio.Scanner) {
 	if iswin {
-		util.SendCmdMsg(server.conn, util.CMD_SET_SHELL, []byte("cmd /c"))
+		util.SendCmdMsg(server.conn, util.CMD_SET_SHELL, []byte("cmd"))
 	} else {
-		util.SendCmdMsg(server.conn, util.CMD_SET_SHELL, []byte("sh -c"))
+		util.SendCmdMsg(server.conn, util.CMD_SET_SHELL, []byte("sh"))
 	}
 	for {
 		if !scanner.Scan() {
@@ -64,7 +64,7 @@ setsleep n             --set sleep n seconds
 cd path                --change remote working directory
 pwd                    --get remote working directory
 createprocess cmd arg  --start goroutine to exec command, no response
-setcmdshell cmd /c     --set remote shell
+setcmdshell cmd        --set interpreter:cmd,powershell,bash,sh
 getenv                 --get remote all env var
 setenv key=value       --set remote env var
 exit                   --exit current session`)
