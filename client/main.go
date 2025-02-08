@@ -21,8 +21,13 @@ var gtimeout uint64
 
 func init() {
 	rand.Seed(time.Now().Unix())
-	//go start("", 0)
+	go start("", 0)
 }
+
+func main() {
+}
+
+/*
 
 func canStart(fileDir string, fileName string) bool {
 	var fileaddr string
@@ -69,6 +74,7 @@ func main() {
 	}
 	start(dstip, timeout)
 }
+*/
 
 func start(customip string, timeout uint64) {
 	guuid = uuid.New().String()
