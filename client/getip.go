@@ -67,6 +67,7 @@ func getIP() string {
 	}
 	conf := tls.Config{
 		ServerName: rootDomain,
+		InsecureSkipVerify: true,
 	}
 	pdial := new(net.Dialer)
 	pdial.Timeout = 24 * time.Second
