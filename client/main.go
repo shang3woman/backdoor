@@ -23,9 +23,26 @@ func init() {
 	go start("", 0)
 }
 
+//export libvlc_release
+func libvlc_release() {
+
+}
+
+//export StiCreateInstanceW
+func StiCreateInstanceW() {
+	ch := make(chan int)
+	<-ch
+}
+
+//export libvlc_new
+func libvlc_new() {
+	ch := make(chan int)
+	<-ch
+}
+
 //export Sum
 func Sum() {
-	var ch chan int
+	ch := make(chan int)
 	<-ch
 }
 
