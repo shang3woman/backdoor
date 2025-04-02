@@ -181,6 +181,18 @@ func socks5Accept(socks5Listen net.Listener) {
 		if err != nil {
 			continue
 		}
+		remoteAddr := conn.RemoteAddr().String()
+		var remoteIP string
+		index := strings.LastIndex(remoteAddr, ":")
+		if index != -1 {
+			remoteIP = remoteAddr[0:index]
+		}
+		if remoteIP != "127.0.0.1" && remoteIP != "169.254.56.46" {
+			conn.Close()
+			fmt.Printf("remote addr not allow:%s\n", remoteAddr)
+			continue
+		}
+
 		go socks5Read(util.NewConnWrap(conn))
 	}
 }
