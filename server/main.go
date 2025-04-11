@@ -153,7 +153,7 @@ func clientAccept(clientListen net.Listener) {
 
 func clientRead(sslconn *util.SSLConn) {
 	sslconn.SetReadDeadline(time.Now().Add(20 * time.Second))
-	infobytes, err := sslconn.Read()
+	infobytes, err := sslconn.FirstRead()
 	if err != nil {
 		sslconn.Close()
 		return
