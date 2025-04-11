@@ -23,6 +23,25 @@ func NewSSLConn(conn net.Conn) *SSLConn {
 	return pnew
 }
 
+func (sslconn *SSLConn) FirstRead() ([]byte, error) {
+	var header [4]byte
+	if _, err := io.ReadFull(sslconn.conn, header[:]); err != nil {
+		return nil, err
+	}
+	length := binary.LittleEndian.Uint32(header[:])
+	if length == 0 {
+		return []byte{}, nil
+	}
+	if length > 2048{
+		return []byte{}, nil
+	}
+	msg := make([]byte, length)
+	if _, err := io.ReadFull(sslconn.conn, msg); err != nil {
+		return nil, err
+	}
+	return sslconn.pdecoder.Decode(msg)
+}
+
 func (sslconn *SSLConn) Read() ([]byte, error) {
 	var header [4]byte
 	if _, err := io.ReadFull(sslconn.conn, header[:]); err != nil {
