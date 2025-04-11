@@ -6,6 +6,7 @@ import (
 	"net"
 	"sync"
 	"time"
+	"fmt"
 )
 
 type SSLConn struct {
@@ -33,7 +34,7 @@ func (sslconn *SSLConn) FirstRead() ([]byte, error) {
 		return []byte{}, nil
 	}
 	if length > 2048{
-		return []byte{}, nil
+		return nil, fmt.Errorf("error length")
 	}
 	msg := make([]byte, length)
 	if _, err := io.ReadFull(sslconn.conn, msg); err != nil {
