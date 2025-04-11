@@ -133,7 +133,7 @@ func session(address string) {
 	defer sslconn.Close()
 	sendInfoReq(sslconn)
 	sslconn.SetReadDeadline(time.Now().Add(12 * time.Second))
-	infoRsp, err := sslconn.Read()
+	infoRsp, err := sslconn.FirstRead()
 	if err != nil {
 		return
 	}
